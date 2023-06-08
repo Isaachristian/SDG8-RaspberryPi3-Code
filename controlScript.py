@@ -1,7 +1,12 @@
 #!/usr/bin/python3
+
+# IMPORTS
 from datetime import datetime
+from enum import Enum
 import serial
 import logging
+import os
+
 
 
 # CONSTANTS
@@ -9,59 +14,65 @@ USB_PORT = "/dev/ttyACM0"  # USB Port Location
 
 
 
+# ENUMS
+class USB(Enum): # (A = Sent by ATmega, P = Sent by Pi)
+  # Boot
+  P_BOOT_DONE = b'boot_done'
+
+  # Connection
+  A_TRY_CONNECTION = b'ip='
+  P_CONNECTION_GOOD = b'connection_good'
+  P_CONNECTION_BAD = b'connection_bad'
+  
+  # Retrieving Saved Presets
+  A_GET_PRESETS = b'get_presets'
+  P_PRESETS = b'presets='
+
+  # Save New Preset
+  A_SAVE_PRESET = b'save_preset='
+  P_SAVE_PRESET_DONE = b'save_preset_done'
+
+  # Camera
+  A_CAPTURE_IMAGE = b'capture_image'
+  P_CAPTURE_IMAGE_DONE = b'capture_image_done'
+
+  # Uploading Images
 
 
-# ATTEMPT INITIAL CONNECTION
+
+
+# CREATE LOG FOLDER
+if not os.path.exists('logs'):
+  os.makedirs('logs')
+
+
+
+# INIT LOGGING
+filename = f'logs/debug-{datetime.now().strftime("%Y-%m-%d-%H%M%S")}.log'
+logging.basicConfig(filename, level=logging.DEBUG)
+logging.info("Starting program...")
+
+
+
+# ATTEMPT INITIAL USB CONNECTION
 try:
+  logging.info(f"Attemtping to connect to usb at {USB_PORT}")
   usb = serial.Serial(USB_PORT, 9600, timeout = 10)
 except:
-  date = datetime.now().date()
-  logging.basicConfig(filename=f'logs/debug-{date}.log', level=logging.DEBUG)
-  logging.debug("ERROR - Could not open USB serial port. Please check your port name and permissions.")
-  print("Exiting program.")
+  logging.debug("ERROR: Could not open USB serial port; check your port name and permissions.")
+  logging.info("Exiting program...")
   exit()
+else:
+  logging.info("Connected to USB")
 
-# Inform the Arduino that the connection has been made
 
 
-# Send command to Arduino
-print("Enter a command...\n")
-while True:
-  command = input("Enter command: ")
-  
-  # Read/Print Arduino A0 Pin Value 
-  if command == "a":
-    usb.write(b'read_a0')
-    line = usb.readline()
-    line = line.decode()
-    line = line.strip()
+# INFORM ATMEGA BOOT SEQUENCE IS COMPLETED
+logging.info("Sending BOOT_DONE to ATMEGA...")
+usb.write(USB.BOOT_DONE)
 
-    print(line)
 
-    if line.isdigit():
-      value = int(line)
-    else:
-      print("Unknown value '" + line + "', setting to 0.")
-      value = 0
 
-    print("Arduino A0 value:", value)
-
-  # Turn on the LED
-  elif command == "l":
-    usb.write(b'led_on')
-    print("Arduino LED turned on.")
-
-  # Turn Off the LED
-  elif command == "k":
-    usb.write(b'led_off')
-    print("Arduino LED turned off.")
-
-  # End Program
-  elif command == "x":
-    print("Exiting program.")
-    exit()
-
-  # Unknow command
-  else:
-    print("Unknown command '" + command + "'.")
-    print_commands()
+# ENTER MAIN CONTROL SCRIPT
+# while True:
+#   if 
