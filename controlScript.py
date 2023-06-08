@@ -1,23 +1,31 @@
 #!/usr/bin/python3
-
+from datetime import datetime
 import serial
+import logging
 
 
-# USB Port Location (on the pi)
-USB_PORT = "/dev/ttyACM0"
+# CONSTANTS
+USB_PORT = "/dev/ttyACM0"  # USB Port Location
 
 
-# Try to connect to USB serial port
+
+
+
+# ATTEMPT INITIAL CONNECTION
 try:
   usb = serial.Serial(USB_PORT, 9600, timeout = 10)
 except:
-  print("ERROR - Could not open USB serial port. Please check your port name and permissions.")
+  date = datetime.now().date()
+  logging.basicConfig(filename=f'logs/debug-{date}.log', level=logging.DEBUG)
+  logging.debug("ERROR - Could not open USB serial port. Please check your port name and permissions.")
   print("Exiting program.")
   exit()
 
+# Inform the Arduino that the connection has been made
+
+
 # Send command to Arduino
 print("Enter a command...\n")
-print_commands()
 while True:
   command = input("Enter command: ")
   
