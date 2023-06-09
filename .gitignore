@@ -162,3 +162,4 @@ cython_debug/
 
 # User Added
 logs/
+presets/presets.data
