@@ -6,12 +6,16 @@ from enum import Enum
 # import serial
 import logging
 import os
+import subprocess
+
+import time
 
 
 
 # CONSTANTS
 LOG_FOLDER = "logs"
 PRESETS_FOLDER = "presets"
+PHOTO_CAPTURE_FOLDER = "captures"
 USB_PORT = "/dev/ttyACM0"  # USB Port Location
 
 
@@ -24,6 +28,8 @@ class USB(Enum): # (A = Sent by ATmega, P = Sent by Pi)
   P_BOOT_DONE = b'boot_done'
 
   # Connection
+  A_GET_PAST_IP = b'get_past_ip'
+  P_RETURN_PAST_IP = b'past_ip='
   A_TRY_CONNECT = b'ip='
   P_CONNECTION_GOOD = b'connection_good'
   P_CONNECTION_BAD = b'connection_bad'
@@ -46,23 +52,24 @@ class USB(Enum): # (A = Sent by ATmega, P = Sent by Pi)
 
 
 
-# CREATE LOG FOLDER IF IT DOESN'T EXIST
+# BEGIN LOGGING
 if not os.path.exists('logs'):
   os.makedirs('logs')
 
-
-
-# INIT LOGGING
 filename = f'{LOG_FOLDER}/debug.log' # -{datetime.now().strftime("%Y-%m-%d-%H%M%S")}.log'
 logging.basicConfig(filename=filename, filemode='w', level=logging.DEBUG)
 logging.info("Starting program...")
 
 
 
-# CREATE PRESETS FOLDER IF IT DOESN'T EXIST
+# CREATE NEEDED FOLDERS
 if not os.path.exists(PRESETS_FOLDER):
   logging.info("Creating presets folder...")
   os.makedirs(PRESETS_FOLDER)
+
+if not os.path.exists(PHOTO_CAPTURE_FOLDER):
+  logging.info("Creating photo capture folder...")
+  os.makedirs(PHOTO_CAPTURE_FOLDER)
 
 
 
@@ -81,7 +88,7 @@ else:
 
 # INFORM ATMEGA BOOT SEQUENCE IS COMPLETED
 logging.info("Sending BOOT_DONE to ATMEGA...")
-# usb.write(USB.P_BOOT_DONE)
+# usb.write(USB.P_BOOT_DONE.value)
 
 
 
@@ -89,19 +96,41 @@ logging.info("Sending BOOT_DONE to ATMEGA...")
 def check(command: str, startsWith: bool, USBValue):
   return command == USBValue.value or (startsWith and command.startswith(USBValue.value))
 
+def getPastIP():
+  logging.info("Retreiving previous IP address...")
+  try: 
+    ipFile = open('ip.data', 'r', encoding='utf-8')
+    ip = ipFile.readline().strip()
+    logging.info(f"Returning {ip}...")
+    # usb.write(f'{USB.P_RETURN_PAST_IP.value}{ip}')
+  except:
+    logging.info(f"No IP saved; returning 0.0.0.0...")
+    # usb.write(f'{USB.P_RETURN_PAST_IP.value}0.0.0.0')
+
 def tryConnection(commandStr):
   ip = commandStr.split("=")[1]
   logging.info(f'Attempting to connect to <{ip}>...')
   
-
   # Attempt a connection to the workstation software
-  # ...
+  time.sleep(5) # ...simulate connection timing
 
   # If successful log and write success to USB, else return bad
-  # if True:
-  #   serial.Write(USB.P_CONNECTION_GOOD)
-  # else:
-  #   serial.Write(USB.P_CONNECTION_BAD)
+  if True:
+    logging.info(f'Connection to <{ip}> successful...')
+
+    try:
+      logging.info(f'Writing IP to file...')
+      IPFile = open("ip.data", 'w', encoding="utf-8")
+      IPFile.write(f'{ip}\n')
+    except:
+      logging.error("Failed to write IP to file")
+    finally:
+      IPFile.close()
+
+    # usb.write(USB.P_CONNECTION_GOOD.value)
+  else:
+    logging.info(f'Connection to <{ip}> unsuccessful...') # TODO: maybe show error messages?
+    # usb.write(USB.P_CONNECTION_BAD.value)
 
 def writePresetToFile(commandStr: str):
   preset = commandStr.split('=')[1]
@@ -123,11 +152,10 @@ def writePresetToFile(commandStr: str):
   except:
     logging.error("Could not open 'presets.data'!")
   finally:
-    print()
-    # usb.write(USB.P_SAVE_PRESET_DONE)
+    # usb.write(USB.P_SAVE_PRESET_DONE.value)
+    logging.info("Preset written to file")
 
-def getPresets(commandStr: str):
-
+def getPresets():
   try:
     logging.info("Opening 'presets.data'...")
     presetsFile = open('presets/presets.data', 'r', encoding='utf-8')
@@ -140,28 +168,50 @@ def getPresets(commandStr: str):
     finally:
       presetsFile.close()
       
-    presetStr = ''
+    presetData = ''
 
     logging.info("Processing 'presets.data'...")
     presets = presetsFileContent.splitlines()
     if len(presets) > 0:
       presets.reverse()
     
-      presetStr = presets.pop(0)
+      presetData = presets.pop(0)
       for p in presets:
-        presetStr += f';{p}'
+        presetData += f';{p}'
     
     # TODO serial write presets
     # usb.write(f'{USB.P_PRESETS.value}{presetStr}')
+    logging.info('Presets written to buffer...')
 
   except:
     logging.error("Could not open 'presets.data'")
 
+def captureImage(imgFolder: str, imgIdx: int) -> tuple[str, int]:
+  logging.info('Capturing image...')
 
-  print(commandStr)
+  if (imgFolder == ''):
+    logging.info("Creating target folder...")
+    imgFolder = f'{PHOTO_CAPTURE_FOLDER}/{datetime.now().strftime("%Y%m%d-%H%M%S")}'
+    imgIdx = 0
+    try:
+      os.makedirs(imgFolder)
+    except:
+      logging.error(f'Failed to create the target folder: {imgFolder}')
 
-def captureImage(commandStr):
-  print(commandStr)
+  logging.info(f"Running gphoto2; Placing image {imgIdx} into folder '{imgFolder}'...")
+  output, error = subprocess.Popen(
+    f"gphoto2 --filename={imgIdx}.jpeg --folder={imgFolder} --capture-image-and-download --debug",
+    shell=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE
+  ).communicate()
+
+  if error.decode('utf-8') == '':   # output = output.decode("utf-8")
+    logging.info('Photo captured successfully...')
+  else:
+    logging.error(f'gPhoto2 returned the following error(s):\n\n{error}\n')
+
+  return [imgFolder, imgIdx + 1]
 
 def startUpload(commandStr):
   print(commandStr)
@@ -169,16 +219,25 @@ def startUpload(commandStr):
 # ENTER MAIN CONTROL SCRIPT
 # command = b'ip=192.168.1.100'.strip() # usb.readline().strip()
 # command = b'save_preset=4,4,50,20'.strip() # usb.readline().strip()
-command = USB.A_GET_PRESETS.value # usb.readline().strip()
+# command = USB.A_GET_PRESETS.value # usb.readline().strip()
+command = USB.A_CAPTURE_IMG.value # usb.readline().strip()
 commandStr = command.decode()
+
+imgFolder: str = ''
+imgIdx = 0
 while True:
   if   check(command, False, USB.EMPTY_USB_BUF): continue
+  elif check(command, True,  USB.A_GET_PAST_IP): getPastIP()
   elif check(command, True,  USB.A_TRY_CONNECT): tryConnection(commandStr)
-  elif check(command, False, USB.A_GET_PRESETS): getPresets(commandStr)
+  elif check(command, False, USB.A_GET_PRESETS): getPresets()
   elif check(command, True,  USB.A_SAVE_PRESET): writePresetToFile(commandStr)
-  elif check(command, False, USB.A_CAPTURE_IMG): captureImage(commandStr)
-  elif check(command, False, USB.A_STRT_UPLOAD): startUpload(commandStr)
+  elif check(command, False, USB.A_CAPTURE_IMG): imgFolder, imgIdx = captureImage(imgFolder, imgIdx)
+  elif check(command, False, USB.A_STRT_UPLOAD): imgFolder = startUpload(imgFolder)
   else: logging.error(f'Unknown command: {command}')
+
+  print(imgFolder)
+
+  logging.info("Listening for command...")
 
   # **DEBUG! REMOVE**
   command = USB.EMPTY_USB_BUF.value
