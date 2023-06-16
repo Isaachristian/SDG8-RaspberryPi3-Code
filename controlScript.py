@@ -3,7 +3,7 @@
 # IMPORTS
 from datetime import datetime
 from enum import Enum
-# import serial
+import serial
 import logging
 import os
 import subprocess
@@ -76,7 +76,7 @@ if not os.path.exists(PHOTO_CAPTURE_FOLDER):
 # ATTEMPT INITIAL USB CONNECTION
 try:
   logging.info(f"Attemtping to connect to usb at {USB_PORT}")
-  # usb = serial.Serial(USB_PORT, 9600, timeout = 10)
+  usb = serial.Serial(USB_PORT, 9600, timeout = 10)
 except:
   logging.error("Could not open USB serial port; check your port name and permissions.")
   logging.error("Exiting program...")
@@ -88,7 +88,7 @@ else:
 
 # INFORM ATMEGA BOOT SEQUENCE IS COMPLETED
 logging.info("Sending BOOT_DONE to ATMEGA...")
-# usb.write(USB.P_BOOT_DONE.value)
+usb.write(USB.P_BOOT_DONE.value)
 
 
 
@@ -102,10 +102,10 @@ def getPastIP():
     ipFile = open('ip.data', 'r', encoding='utf-8')
     ip = ipFile.readline().strip()
     logging.info(f"Returning {ip}...")
-    # usb.write(f'{USB.P_RETURN_PAST_IP.value}{ip}')
+    usb.write(f'{USB.P_RETURN_PAST_IP.value}{ip}')
   except:
     logging.info(f"No IP saved; returning 0.0.0.0...")
-    # usb.write(f'{USB.P_RETURN_PAST_IP.value}0.0.0.0')
+    usb.write(f'{USB.P_RETURN_PAST_IP.value}0.0.0.0')
 
 def tryConnection(commandStr):
   ip = commandStr.split("=")[1]
@@ -127,10 +127,10 @@ def tryConnection(commandStr):
     finally:
       IPFile.close()
 
-    # usb.write(USB.P_CONNECTION_GOOD.value)
+    usb.write(USB.P_CONNECTION_GOOD.value)
   else:
     logging.info(f'Connection to <{ip}> unsuccessful...') # TODO: maybe show error messages?
-    # usb.write(USB.P_CONNECTION_BAD.value)
+    usb.write(USB.P_CONNECTION_BAD.value)
 
 def writePresetToFile(commandStr: str):
   preset = commandStr.split('=')[1]
@@ -180,7 +180,7 @@ def getPresets():
         presetData += f';{p}'
     
     # TODO serial write presets
-    # usb.write(f'{USB.P_PRESETS.value}{presetStr}')
+    usb.write(f'{USB.P_PRESETS.value}{"presetStr"}')
     logging.info('Presets written to buffer...')
 
   except:
@@ -199,8 +199,8 @@ def captureImage(imgFolder: str, imgIdx: int) -> tuple[str, int]:
       logging.error(f'Failed to create the target folder: {imgFolder}')
 
   logging.info(f"Running gphoto2; Placing image {imgIdx} into folder '{imgFolder}'...")
-  output, error = subprocess.Popen(
-    f"gphoto2 --filename={imgIdx}.jpeg --folder={imgFolder} --capture-image-and-download --debug",
+  _, error = subprocess.Popen(
+    f"cd {imgFolder} && gphoto2 --filename={imgIdx}.jpeg --capture-image-and-download",
     shell=True,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE
