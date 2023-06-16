@@ -7,7 +7,6 @@ import serial
 import logging
 import os
 import subprocess
-
 import time
 
 
@@ -220,12 +219,14 @@ def startUpload(commandStr):
 # command = b'ip=192.168.1.100'.strip() # usb.readline().strip()
 # command = b'save_preset=4,4,50,20'.strip() # usb.readline().strip()
 # command = USB.A_GET_PRESETS.value # usb.readline().strip()
-command = USB.A_CAPTURE_IMG.value # usb.readline().strip()
-commandStr = command.decode()
+# command = USB.A_CAPTURE_IMG.value # usb.readline().strip()
 
 imgFolder: str = ''
 imgIdx = 0
 while True:
+  command = usb.readline().strip()
+  commandStr = command.decode()
+
   if   check(command, False, USB.EMPTY_USB_BUF): continue
   elif check(command, True,  USB.A_GET_PAST_IP): getPastIP()
   elif check(command, True,  USB.A_TRY_CONNECT): tryConnection(commandStr)
@@ -235,11 +236,5 @@ while True:
   elif check(command, False, USB.A_STRT_UPLOAD): imgFolder = startUpload(imgFolder)
   else: logging.error(f'Unknown command: {command}')
 
-  print(imgFolder)
-
   logging.info("Listening for command...")
-
-  # **DEBUG! REMOVE**
-  command = USB.EMPTY_USB_BUF.value
-  commandStr = command.decode()
 
