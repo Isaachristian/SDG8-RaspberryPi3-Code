@@ -24,7 +24,8 @@ class USB(Enum): # (A = Sent by ATmega, P = Sent by Pi)
   EMPTY_USB_BUF = b''
 
   # Boot
-  P_BOOT_DONE = b'boot_done'
+  P_BOOT_DONE = b'boot_done\n'
+  A_ACK_BOOT = b'ack_boot'
 
   # Connection
   A_GET_PAST_IP = b'get_past_ip'
@@ -49,49 +50,80 @@ class USB(Enum): # (A = Sent by ATmega, P = Sent by Pi)
   A_STRT_UPLOAD = b'begin_upload'
   P_FINISH_UPLOAD = b'finish_upload'
 
+  # Say Hi
+  A_SAY_HELLO = b'say_hello'
+  P_SAY_HELLO = b'say_hello_back\n'
 
 
-# BEGIN LOGGING
-if not os.path.exists('logs'):
-  os.makedirs('logs')
+# INIT FUNCTIONS
+def initLogging(): 
+  if not os.path.exists('logs'):
+    os.makedirs('logs')
 
-filename = f'{LOG_FOLDER}/debug.log' # -{datetime.now().strftime("%Y-%m-%d-%H%M%S")}.log'
-logging.basicConfig(filename=filename, filemode='w', level=logging.DEBUG)
-logging.info("Starting program...")
+  filename = f'{LOG_FOLDER}/debug.log' # -{datetime.now().strftime("%Y-%m-%d-%H%M%S")}.log'
+  logging.basicConfig(filename=filename, filemode='w', level=logging.DEBUG)
+  logging.info("Starting program...")
+
+def createFolders():
+  if not os.path.exists(PRESETS_FOLDER):
+    logging.info("Creating presets folder...")
+    os.makedirs(PRESETS_FOLDER)
+
+  if not os.path.exists(PHOTO_CAPTURE_FOLDER):
+    logging.info("Creating photo capture folder...")
+    os.makedirs(PHOTO_CAPTURE_FOLDER)
+
+def checkCameraConnection():
+  gPhoto2out, gPhoto2Err = subprocess.Popen(
+    f"gphoto2 --auto-detect",
+    shell=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE
+  ).communicate()
+
+  cam = gPhoto2out.decode('utf-8').splitlines()
+  if len(cam) > 2 or gPhoto2Err.decode('utf-8') != '':
+    logging.info(f"Connected to: {cam[2]}")
+  else:
+    logging.error(f"Could not find camera!\n\n{gPhoto2out.decode('utf-8')}")
+    exit()
+
+def connectToATmega():
+  try:
+    logging.info(f"Attemtping to connect to usb at {USB_PORT}")
+    return serial.Serial(USB_PORT, 9600, timeout = 1)
+  except:
+    logging.error("Could not open USB serial port; check your port name and permissions.")
+    logging.error("Exiting program...")
+    exit()
+
+def informATmegaOfBoot(usb: serial):
+  usb.reset_input_buffer()
+  usb.reset_output_buffer()
+
+  logging.info("Sending BOOT_DONE to ATMEGA...")
+  usb.write(USB.P_BOOT_DONE.value)
+
+  bootAcknowledged = False
+  while not bootAcknowledged:
+    bootAcknowledged = usb.readline().strip() == USB.A_ACK_BOOT.value
+
+    if not bootAcknowledged:
+      logging.warn("Re-Sending BOOT_DONE to ATMEGA...")
+      usb.write(USB.P_BOOT_DONE.value)
+
+  logging.info("Boot Acknowledged!")
+
+# TEST
+def sayHello():
+  logging.info("The arduino said hello! Waiting 10 seconds")
+  time.sleep(10)
+
+  logging.info("Saying hi back...")
+  usb.write(USB.P_SAY_HELLO.value)
 
 
-
-# CREATE NEEDED FOLDERS
-if not os.path.exists(PRESETS_FOLDER):
-  logging.info("Creating presets folder...")
-  os.makedirs(PRESETS_FOLDER)
-
-if not os.path.exists(PHOTO_CAPTURE_FOLDER):
-  logging.info("Creating photo capture folder...")
-  os.makedirs(PHOTO_CAPTURE_FOLDER)
-
-
-
-# ATTEMPT INITIAL USB CONNECTION
-try:
-  logging.info(f"Attemtping to connect to usb at {USB_PORT}")
-  usb = serial.Serial(USB_PORT, 9600, timeout = 10)
-except:
-  logging.error("Could not open USB serial port; check your port name and permissions.")
-  logging.error("Exiting program...")
-  exit()
-else:
-  logging.info("Connected to USB")
-
-
-
-# INFORM ATMEGA BOOT SEQUENCE IS COMPLETED
-logging.info("Sending BOOT_DONE to ATMEGA...")
-usb.write(USB.P_BOOT_DONE.value)
-
-
-
-# FUNCTIONS
+# GENERAL FUNCTIONS
 def check(command: str, startsWith: bool, USBValue):
   return command == USBValue.value or (startsWith and command.startswith(USBValue.value))
 
@@ -185,7 +217,7 @@ def getPresets():
   except:
     logging.error("Could not open 'presets.data'")
 
-def captureImage(imgFolder: str, imgIdx: int) -> tuple[str, int]:
+def captureImage(imgFolder: str, imgIdx: int, usb: serial) -> tuple[str, int]:
   logging.info('Capturing image...')
 
   if (imgFolder == ''):
@@ -210,10 +242,23 @@ def captureImage(imgFolder: str, imgIdx: int) -> tuple[str, int]:
   else:
     logging.error(f'gPhoto2 returned the following error(s):\n\n{error}\n')
 
+  usb.write(USB.P_CAPTURE_IMAGE_DONE.value)
+
   return [imgFolder, imgIdx + 1]
 
 def startUpload(commandStr):
   print(commandStr)
+
+
+# STARTUP
+initLogging()
+createFolders()
+checkCameraConnection()
+usb = connectToATmega()
+informATmegaOfBoot(usb)
+
+
+logging.info("Listening for command...")
 
 # ENTER MAIN CONTROL SCRIPT
 # command = b'ip=192.168.1.100'.strip() # usb.readline().strip()
@@ -228,13 +273,16 @@ while True:
   commandStr = command.decode()
 
   if   check(command, False, USB.EMPTY_USB_BUF): continue
+  elif check(command, False, USB.A_SAY_HELLO): sayHello()
   elif check(command, True,  USB.A_GET_PAST_IP): getPastIP()
   elif check(command, True,  USB.A_TRY_CONNECT): tryConnection(commandStr)
   elif check(command, False, USB.A_GET_PRESETS): getPresets()
   elif check(command, True,  USB.A_SAVE_PRESET): writePresetToFile(commandStr)
-  elif check(command, False, USB.A_CAPTURE_IMG): imgFolder, imgIdx = captureImage(imgFolder, imgIdx)
+  elif check(command, False, USB.A_CAPTURE_IMG): 
+    imgFolder, imgIdx = captureImage(imgFolder, imgIdx, usb)
   elif check(command, False, USB.A_STRT_UPLOAD): imgFolder = startUpload(imgFolder)
-  else: logging.error(f'Unknown command: {command}')
+  else: logging.error(f'Unknown command: {command.decode("utf-8")}')
+
 
   logging.info("Listening for command...")
 
