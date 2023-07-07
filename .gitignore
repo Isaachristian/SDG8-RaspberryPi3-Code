@@ -165,3 +165,6 @@ logs/
 presets/presets.data
 captures/
 .DS_Store
+ip.data
+photos.zip
+test.zip
